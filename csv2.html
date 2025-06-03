@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Corrector de CSV</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body class="bg-light">
+  <div class="container mt-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h3 class="card-title mb-4 text-center text-secondary-emphasis">Corrector de Documentos CSV</h3>
+        <p class="text-muted">Instrucciones:
+          <ul>
+            <li>1. Presiona elegir archivos o arrastra los archivos .csv</li>
+            <li>2. Verifica en el listado que sean los archivos correctos </li>
+            <li>3. Presiona Procesar Archivos</li>
+            <li>4. Los archivos se descargarán automáticamente </li>
+          </ul>
+        </p>
+
+        <div class="mb-3">
+          <label for="fileInput" class="form-label">Selecciona archivos CSV</label>
+          <input type="file" class="form-control" id="fileInput" multiple accept=".csv" onchange="mostrarArchivos()">
+        </div>
+
+        <div id="fileList" class="mb-3"></div>
+
+        <button onclick="processFiles()" class="btn btn-primary">
+          Procesar Archivos
+        </button>
+
+        <div id="status" class="mt-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function mostrarArchivos() {
+      const files = document.getElementById('fileInput').files;
+      const fileList = document.getElementById('fileList');
+      if (files.length === 0) {
+        fileList.innerHTML = "";
+        return;
+      }
+
+      let html = `<div class="alert alert-info">
+        🗂️ <strong>${files.length}</strong> archivo(s) seleccionado(s):
+        <ul class="mb-0">`;
+      for (let i = 0; i < files.length; i++) {
+        html += `<li>${files[i].name}</li>`;
+      }
+      html += "</ul></div>";
+
+      fileList.innerHTML = html;
+    }
+
+    function acortarTitulo(titulo) {
+      if (typeof titulo !== 'string') return titulo;
+      
+      // 1. Eliminar contenido entre paréntesis
+      let tituloLimpio = titulo.replace(/\s*\([^)]*\)/g, '').trim();
+      
+      // 2. Extraer la parte numérica (conservando puntos)
+      const matchNumerico = tituloLimpio.match(/(\d+\.?\d*)/);
+      const parteNumerica = matchNumerico ? matchNumerico[0] : '';
+      
+      // 3. Obtener el texto sin números
+      const textoSinNumeros = tituloLimpio.replace(parteNumerica, '').trim();
+      
+      // 4. Obtener iniciales de todas las palabras
+      const iniciales = textoSinNumeros.split(/\s+/).map(p => p.charAt(0)).join('');
+      
+      // 5. Combinar resultado
+      return iniciales + (parteNumerica ? ' ' + parteNumerica : '');
+    }
+
+    function processFiles() {
+      const files = document.getElementById('fileInput').files;
+      const status = document.getElementById('status');
+      status.innerHTML = "";
+
+      if (!files.length) {
+        status.innerHTML = '<div class="alert alert-warning">⚠️ Selecciona al menos un archivo CSV.</div>';
+        return;
+      }
+
+      Array.from(files).forEach(file => {
+        Papa.parse(file, {
+          header: false,
+          skipEmptyLines: true,
+          complete: function(results) {
+            const rawData = results.data;
+            const columnasAEliminar = new Set();
+
+            // PASO 1: Identificar columnas a eliminar (columna B=1 con "ID" y columnas con "(solo lectura)")
+            for (let col = 0; col < rawData[0].length; col++) {
+              for (let fila of rawData.slice(0, 4)) { // Revisar primeras 4 filas
+                const celda = (fila[col] || "").toString().toLowerCase();
+                if (col === 1 && celda.includes("id")) columnasAEliminar.add(col);
+                if (celda.includes("(solo lectura)")) columnasAEliminar.add(col);
+              }
+            }
+
+            // PASO 2: Filtrar columnas (eliminar las marcadas)
+            const dataFiltrada = rawData.map(fila => 
+              fila.filter((_, idx) => !columnasAEliminar.has(idx))
+            );
+
+            // PASO 3: Procesar SOLO la primera fila DESDE la columna 5 (índice 4) del resultado filtrado
+            const primeraFilaProcesada = dataFiltrada[0].map((celda, colIndex) => {
+              return (colIndex >= 4) ? acortarTitulo(celda) : celda; // Columna 5+ en el resultado final
+            });
+
+            // PASO 4: Combinar datos (primera fila procesada + otras filas sin modificar)
+            const datosFinales = [
+              primeraFilaProcesada,
+              ...dataFiltrada.slice(1)
+            ];
+
+            // Generar y descargar CSV
+            const csvFinal = Papa.unparse(datosFinales);
+            downloadCSV(csvFinal, "limpio_" + file.name);
+
+            status.insertAdjacentHTML("beforeend", 
+              `<div class="alert alert-success mt-2">✅ Archivo procesado: <strong>${file.name}</strong></div>`
+            );
+          }
+        });
+      });
+    }
+
+    function downloadCSV(csvContent, fileName) {
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
